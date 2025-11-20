@@ -1,69 +1,54 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import ProjectFormModal from '@/components/ProjectFormModal';
-
-// Types based on database schema
-interface Category {
-  id: string;
-  name: string;
-  icon: string;
-}
-
-interface Project {
-  id: number;
-  title: string;
-  category: string;
-  client: string;
-  description: string;
-  image: string;
-  duration: string;
-  team: string;
-  created_at: string;
-  technologies: string[];
-  features: string[];
-  results: Array<{ key: string; value: string }>;
-}
-
-interface ProjectFormData {
-  title: string;
-  category: string;
-  client: string;
-  description: string;
-  image: string;
-  duration: string;
-  team: string;
-  technologies: string[];
-  features: string[];
-  results: Array<{ key: string; value: string }>;
-}
+import { projectService } from '@/services/projectService';
+import type { Project, ProjectFormData, Category } from '@/lib/supabase';
 
 const ProjectsPage = () => {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock categories based on database
-  const categories: Category[] = [
-    { id: 'web', name: 'Web Development', icon: '🌐' },
-    { id: 'mobile', name: 'Mobile App', icon: '📱' },
-    { id: 'ai', name: 'AI & Machine Learning', icon: '🤖' },
-    { id: 'cloud', name: 'Cloud Solutions', icon: '☁️' },
-    { id: 'ecommerce', name: 'E-commerce', icon: '🛒' },
-    { id: 'enterprise', name: 'Enterprise Software', icon: '🏢' }
-  ];
-
-  // Load projects from localStorage (simulating database)
+  // Load projects và categories từ Supabase
   useEffect(() => {
-    const savedProjects = localStorage.getItem('projects');
-    if (savedProjects) {
-      setProjects(JSON.parse(savedProjects));
-    }
+    loadData();
   }, []);
 
-  // Save projects to localStorage
-  useEffect(() => {
-    localStorage.setItem('projects', JSON.stringify(projects));
-  }, [projects]);
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const [projectsData, categoriesData] = await Promise.all([
+        projectService.getAllProjects(),
+        projectService.getCategories()
+      ]);
+
+      setProjects(projectsData);
+      
+      // Nếu không có categories trong database, sử dụng mock data
+      if (categoriesData.length > 0) {
+        setCategories(categoriesData);
+      } else {
+        setCategories([
+          { id: 'web', name: 'Web Development', icon: '🌐' },
+          { id: 'mobile', name: 'Mobile App', icon: '📱' },
+          { id: 'ai', name: 'AI & Machine Learning', icon: '🤖' },
+          { id: 'cloud', name: 'Cloud Solutions', icon: '☁️' },
+          { id: 'ecommerce', name: 'E-commerce', icon: '🛒' },
+          { id: 'enterprise', name: 'Enterprise Software', icon: '🏢' }
+        ]);
+      }
+    } catch (err) {
+      console.error('Error loading data:', err);
+      setError('Không thể tải dữ liệu. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCreateProject = () => {
     setEditingProject(null);
@@ -75,38 +60,85 @@ const ProjectsPage = () => {
     setShowProjectModal(true);
   };
 
-  const handleDeleteProject = (id: number) => {
+  const handleDeleteProject = async (id: number) => {
     if (confirm('Bạn có chắc muốn xóa dự án này?')) {
-      setProjects(projects.filter(project => project.id !== id));
+      try {
+        const success = await projectService.deleteProject(id);
+        if (success) {
+          setProjects(projects.filter(project => project.id !== id));
+        } else {
+          alert('Có lỗi xảy ra khi xóa dự án');
+        }
+      } catch (err) {
+        console.error('Error deleting project:', err);
+        alert('Có lỗi xảy ra khi xóa dự án');
+      }
     }
   };
 
-  const handleSubmitProject = (projectData: ProjectFormData) => {
-    if (editingProject) {
-      // Update existing project
-      setProjects(projects.map(project => 
-        project.id === editingProject.id 
-          ? { ...projectData, id: editingProject.id, created_at: editingProject.created_at }
-          : project
-      ));
-    } else {
-      // Create new project
-      const newProject: Project = {
-        ...projectData,
-        id: Date.now(),
-        created_at: new Date().toISOString()
-      };
-      setProjects([...projects, newProject]);
-    }
+  const handleSubmitProject = async (projectData: ProjectFormData) => {
+    try {
+      if (editingProject) {
+        // Update existing project
+        const success = await projectService.updateProject(editingProject.id, projectData);
+        if (success) {
+          await loadData(); // Reload data to get updated project
+        } else {
+          alert('Có lỗi xảy ra khi cập nhật dự án');
+          return;
+        }
+      } else {
+        // Create new project
+        const newProjectId = await projectService.createProject(projectData);
+        if (newProjectId) {
+          await loadData(); // Reload data to get new project
+        } else {
+          alert('Có lỗi xảy ra khi tạo dự án');
+          return;
+        }
+      }
 
-    setShowProjectModal(false);
-    setEditingProject(null);
+      setShowProjectModal(false);
+      setEditingProject(null);
+    } catch (err) {
+      console.error('Error submitting project:', err);
+      alert('Có lỗi xảy ra khi lưu dự án');
+    }
   };
 
   const handleCloseModal = () => {
     setShowProjectModal(false);
     setEditingProject(null);
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p>Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-6xl mb-4">❌</div>
+          <h3 className="text-xl font-semibold mb-2">Lỗi tải dữ liệu</h3>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <button 
+            onClick={loadData}
+            className="bg-primary text-primary-foreground px-6 py-2 rounded-md hover:bg-primary/90 transition-colors"
+          >
+            Thử lại
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -214,7 +246,7 @@ const ProjectsPage = () => {
                         )}
                       </div>
 
-                      {project.technologies.length > 0 && (
+                      {project.technologies && project.technologies.length > 0 && (
                         <div className="mb-4">
                           <h4 className="font-medium text-sm mb-2">Công nghệ:</h4>
                           <div className="flex flex-wrap gap-1">

@@ -4,10 +4,10 @@ import path from "path";
 import { componentTagger } from "lovable-tagger";
 
 export default defineConfig(({ mode }) => ({
-  base: "/HITEK_CLONE/",
+  base: "/HITEK_ADMIN/",
   server: {
     host: "::",
-    port: 8080,
+    port: 8081,
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

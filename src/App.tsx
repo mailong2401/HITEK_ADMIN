@@ -10,9 +10,9 @@ import ManagementPage from "@/pages/ManagementPage";
 import ProjectsPage from './pages/ProjectsPage';
 import ChatbotPage from './pages/ChatbotPage';
 
-import Layout from "./components/Layout"; // Import Layout
-
-
+import { AuthProvider } from '@/contexts/AuthContext';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import Layout from "./components/Layout";
 
 const queryClient = new QueryClient();
 
@@ -22,42 +22,50 @@ const App = () => (
       <TooltipProvider>
         <Toaster />
         <Sonner />
-        <BrowserRouter basename="/HITEK_CLONE">
-          <Routes>
-            {/* Sử dụng Layout cho từng route */}
-            <Route path="/" element={
-              <Layout>
-                <Index />
-              </Layout>
-            } />
-            {/* Sử dụng Layout cho từng route */}
-            <Route path="/hitek-software" element={
-              <Layout>
-                <ManagementPage />
-              </Layout>
-            } />
-            <Route path="/projects" element={
-              <Layout>
-                  <ProjectsPage />
-              </Layout>
-              
+        <AuthProvider>
+          <BrowserRouter basename="/HITEK_ADMIN">
+            <Routes>
+              {/* Public route - không cần đăng nhập */}
+              <Route path="/" element={
+                <Layout>
+                  <Index />
+                </Layout>
               } />
-            <Route path="/chatbot" element={
-              <Layout>
-<ChatbotPage />
-              </Layout>
-              
-              } />
-            
 
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={
-              <Layout>
-                <NotFound />
-              </Layout>
-            } />
-          </Routes>
-        </BrowserRouter>
+              {/* Protected routes - cần đăng nhập */}
+              <Route path="/hitek-software" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ManagementPage />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/projects" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ProjectsPage />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/chatbot" element={
+                <ProtectedRoute>
+                  <Layout>
+                    <ChatbotPage />
+                  </Layout>
+                </ProtectedRoute>
+              } />
+
+              {/* 404 route - public */}
+              <Route path="*" element={
+                <Layout>
+                  <NotFound />
+                </Layout>
+              } />
+            </Routes>
+          </BrowserRouter>
+        </AuthProvider>
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>

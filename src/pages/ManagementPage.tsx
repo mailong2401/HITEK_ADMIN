@@ -20,10 +20,6 @@ const ManagementPage = () => {
               >
                 ← Trang chủ
               </Link>
-              <div className="text-right">
-                <p className="font-semibold">Admin User</p>
-                <p className="text-sm text-muted-foreground">Quản trị viên</p>
-              </div>
               <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center">
                 <span className="text-primary-foreground font-semibold">A</span>
               </div>
