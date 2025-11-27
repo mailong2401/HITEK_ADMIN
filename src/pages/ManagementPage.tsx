@@ -37,7 +37,7 @@ const ManagementPage = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
           {/* Projects Card */}
           <Link 
             to="/projects" 
@@ -49,6 +49,24 @@ const ManagementPage = () => {
               <p className="text-muted-foreground mb-6">
                 Quản lý toàn bộ dự án phần mềm với đầy đủ thông tin chi tiết, 
                 công nghệ sử dụng, tính năng và kết quả đạt được.
+              </p>
+              <div className="bg-primary text-primary-foreground px-6 py-3 rounded-md inline-block hover:bg-primary/90 transition-colors">
+                Truy cập Module
+              </div>
+            </div>
+          </Link>
+
+          {/* Blog Card - THÊM VÀO ĐÂY */}
+          <Link 
+            to="/blogs" 
+            className="bg-card border border-border rounded-lg p-8 hover:shadow-lg transition-all hover:scale-105 group"
+          >
+            <div className="text-center">
+              <div className="text-6xl mb-4 group-hover:scale-110 transition-transform">📝</div>
+              <h3 className="text-2xl font-semibold mb-4">Quản lý Blog</h3>
+              <p className="text-muted-foreground mb-6">
+                Quản lý nội dung blog, bài viết công nghệ, tin tức và chia sẻ kiến thức 
+                với khách hàng và cộng đồng.
               </p>
               <div className="bg-primary text-primary-foreground px-6 py-3 rounded-md inline-block hover:bg-primary/90 transition-colors">
                 Truy cập Module
@@ -84,16 +102,16 @@ const ManagementPage = () => {
               <div className="text-muted-foreground">Dự án</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-green-600 mb-2">3</div>
+              <div className="text-3xl font-bold text-green-600 mb-2">0</div>
+              <div className="text-muted-foreground">Bài viết</div>
+            </div>
+            <div className="text-center">
+              <div className="text-3xl font-bold text-purple-600 mb-2">3</div>
               <div className="text-muted-foreground">Chatbot</div>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-bold text-purple-600 mb-2">2</div>
+              <div className="text-3xl font-bold text-orange-600 mb-2">3</div>
               <div className="text-muted-foreground">Module chính</div>
-            </div>
-            <div className="text-center">
-              <div className="text-3xl font-bold text-orange-600 mb-2">100%</div>
-              <div className="text-muted-foreground">Hiệu suất</div>
             </div>
           </div>
         </div>
