@@ -1,13 +1,13 @@
 {
   "name": "vite_react_shadcn_ts",
-  "homepage": "https://mailong2401.github.io/HITEK_CLONE",
+  "homepage": "https://mailong2401.github.io/HITEK_ADMIN",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build --base=/HITEK_CLONE/",
-    "build:dev": "vite build --mode development --base=/HITEK_CLONE/",
+    "build": "vite build --base=/HITEK_ADMIN/",
+    "build:dev": "vite build --mode development --base=/HITEK_ADMIN/",
     "lint": "eslint .",
     "preview": "vite preview",
     "predeploy": "npm run build",
