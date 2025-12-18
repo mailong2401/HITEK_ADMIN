@@ -1,177 +1,325 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { useBlogs } from '@/contexts/BlogContext';
+import { useState, useRef, useEffect } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
+import { BlogPost } from '@/types'
+import { supabase } from '@/services/supabase'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Label } from '@/components/ui/label'
+import { Upload, X, Loader2, AlertCircle, Check, Eye } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import RichTextEditor from "@/components/RichTextEditorQuill"
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
-// Danh sách tags có sẵn
-const availableTags = [
-  "React", "Vue.js", "Angular", "TypeScript", "JavaScript", "Node.js",
-  "Next.js", "Nuxt.js", "Python", "Django", "Flask", "Java",
-  "Spring Boot", "C#", ".NET", "PHP", "Laravel", "Ruby",
-  "Ruby on Rails", "Go", "Rust", "Swift", "Kotlin",
-  "Database", "API", "Microservices", "DevOps", "Cloud",
-  "AWS", "Docker", "Kubernetes", "Git", "CI/CD",
-  "UI/UX", "Performance", "Security", "Testing", "Best Practices",
-  "Tutorial", "Guide", "Case Study", "News", "Update"
-];
+const categories = [
+  'Tin tức',
+  'Hướng dẫn',
+  'Review',
+  'Công nghệ',
+  'Sản phẩm',
+  'Pháp lý',
+  'Nhiếp ảnh',
+  'Bảo trì',
+]
 
-const BlogFormPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { id } = useParams();
-  const { 
-    categories, 
-    authors,
-    createBlog, 
-    updateBlog, 
-    getBlogById,
-    uploadImage
-  } = useBlogs();
-
-  const editingBlog = id ? getBlogById(id) : null;
+export const BlogFormPage: React.FC = () => {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { id } = useParams()  // Đảm bảo route của bạn là /blogs/edit/:id
+  
+  const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string>('')
+  const [error, setError] = useState<string>('')
+  const [seoChecks, setSeoChecks] = useState({
+    hasTitle: false,
+    hasContent: false,
+    hasImage: false,
+    hasMetaDescription: false,
+    hasHeadings: false,
+  })
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({
     title: '',
-    slug: '',
-    subtitle: '',
     excerpt: '',
     content: '',
-    thumbnail_url: '',
-    cover_image_url: '',
-    event_date: '',
-    location: '',
-    status: 'draft' as 'draft' | 'published' | 'archived',
-    meta_title: '',
-    meta_description: '',
-    author_id: ''
-  });
+    image: '',
+    date: new Date().toISOString().split('T')[0],
+    author: user?.email?.split('@')[0] || '',
+    category: categories[0],
+    status: 'draft',
+  })
 
-  const [tags, setTags] = useState<string[]>([]);
-  const [tagInput, setTagInput] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [uploadingThumbnail, setUploadingThumbnail] = useState(false);
-  const [uploadingCover, setUploadingCover] = useState(false);
-
+  // Load blog post for editing
   useEffect(() => {
-    if (editingBlog) {
-      setFormData({
-        title: editingBlog.title,
-        slug: editingBlog.slug,
-        subtitle: editingBlog.subtitle || '',
-        excerpt: editingBlog.excerpt || '',
-        content: editingBlog.content,
-        thumbnail_url: editingBlog.thumbnail_url || '',
-        cover_image_url: editingBlog.cover_image_url || '',
-        event_date: editingBlog.event_date || '',
-        location: editingBlog.location || '',
-        status: editingBlog.status,
-        meta_title: editingBlog.meta_title || '',
-        meta_description: editingBlog.meta_description || '',
-        author_id: editingBlog.author_id || ''
-      });
+    const loadBlogPost = async () => {
+      if (!id) return
+      
+      try {
+        setLoading(true)
+        console.log('📥 Loading blog post with id:', id)
+        
+        // Query bằng ID thay vì slug
+        const { data, error } = await supabase
+          .from('blog_posts')
+          .select('*')
+          .eq('id', id)  // Sử dụng id thay vì slug
+          .single()
+
+        if (error) {
+          console.error('Supabase error:', error)
+          throw error
+        }
+
+        if (data) {
+          console.log('✅ Blog post loaded:', data)
+          setFormData({
+            title: data.title || '',
+            excerpt: data.excerpt || '',
+            content: data.content || '',
+            image: data.image || '',
+            date: data.date ? new Date(data.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            author: data.author || user?.email?.split('@')[0] || '',
+            category: data.category || categories[0],
+            status: data.status || 'draft',
+          })
+          setPreviewImage(data.image || '')
+        } else {
+          console.warn('No blog post found with id:', id)
+          setError('Không tìm thấy bài viết với ID này')
+        }
+      } catch (error: any) {
+        console.error('Error loading blog post:', error)
+        setError(`Lỗi khi tải bài viết: ${error.message}`)
+      } finally {
+        setLoading(false)
+      }
     }
-  }, [editingBlog]);
+
+    loadBlogPost()
+  }, [id, user])
+
+  // Kiểm tra SEO khi formData thay đổi
+  useEffect(() => {
+    checkSEO()
+  }, [formData])
+
+  const checkSEO = () => {
+    const checks = {
+      hasTitle: formData.title.length > 10 && formData.title.length < 70,
+      hasContent: formData.content.length > 300,
+      hasImage: formData.image.length > 0,
+      hasMetaDescription: (formData.excerpt.length >= 120 && formData.excerpt.length <= 160),
+      hasHeadings: /<h[1-3][^>]*>.*?<\/h[1-3]>/i.test(formData.content),
+    }
+    setSeoChecks(checks)
+  }
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setError('')
+    setUploading(true)
+
+    try {
+      const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp']
+      if (!validTypes.includes(file.type)) {
+        setError('Chỉ chấp nhận file ảnh (JPEG, PNG, GIF, WebP)')
+        return
+      }
+
+      if (file.size > 5 * 1024 * 1024) {
+        setError('File quá lớn. Vui lòng chọn file nhỏ hơn 5MB')
+        return
+      }
+
+      const fileExt = file.name.split('.').pop()
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`
+      const filePath = `blog-images/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('blog-images')
+        .upload(filePath, file)
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('blog-images')
+        .getPublicUrl(filePath)
+
+      setPreviewImage(publicUrl)
+      setFormData(prev => ({ ...prev, image: publicUrl }))
+
+    } catch (error: any) {
+      console.error('Error uploading image:', error)
+
+      if (error.message?.includes('bucket') || error.message?.includes('not found')) {
+        setError('Bucket "blog-images" chưa được tạo trong Supabase.')
+      } else {
+        setError(`Có lỗi khi upload ảnh: ${error.message}`)
+      }
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const removeImage = () => {
+    setPreviewImage('')
+    setFormData(prev => ({ ...prev, image: '' }))
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+
+  const handleImageUrlChange = (url: string) => {
+    setFormData(prev => ({ ...prev, image: url }))
+    setPreviewImage(url)
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+
     try {
-      console.log('🔄 Submitting blog form...', formData);
-      
-      let success = false;
-      
-      // Chuẩn hóa data trước khi gửi - chuyển empty strings thành null
-      const blogData = {
-        ...formData,
-        subtitle: formData.subtitle || null,
-        excerpt: formData.excerpt || null,
-        thumbnail_url: formData.thumbnail_url || null,
-        cover_image_url: formData.cover_image_url || null,
-        event_date: formData.event_date || null,
-        location: formData.location || null,
-        meta_title: formData.meta_title || null,
-        meta_description: formData.meta_description || null,
-        author_id: formData.author_id || null,
-        published_at: formData.status === 'published' ? new Date().toISOString() : null
-      };
+      if (!formData.title.trim()) {
+        setError('Vui lòng nhập tiêu đề')
+        return
+      }
+      if (!formData.excerpt.trim()) {
+        setError('Vui lòng nhập tóm tắt')
+        return
+      }
+      if (!formData.image.trim()) {
+        setError('Vui lòng thêm hình ảnh cho bài viết')
+        return
+      }
+      if (!formData.content.trim() || formData.content.trim().length < 50) {
+        setError('Vui lòng nhập nội dung chi tiết (ít nhất 50 ký tự)')
+        return
+      }
 
-      console.log('📦 Blog data to submit:', blogData);
+      // Tạo slug từ tiêu đề cho SEO friendly URL
+      const createSlug = (text: string) => {
+        return text
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^\w\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .trim()
+      }
 
-      if (editingBlog) {
-        success = await updateBlog(editingBlog.id, blogData);
+      // Kiểm tra user có tồn tại trong bảng users không
+      let userId = null
+      if (user?.id) {
+        try {
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', user.id)
+            .single()
+          
+          if (userError && userError.code === 'PGRST116') {
+            // User không tồn tại trong bảng users, tạo mới
+            const { error: createError } = await supabase
+              .from('users')
+              .insert([{
+                id: user.id,
+                email: user.email,
+                name: user.user_metadata?.name || user.email?.split('@')[0] || 'User'
+              }])
+            
+            if (createError) {
+              console.warn('Không thể tạo user, sẽ lưu với user_id = null:', createError)
+            } else {
+              userId = user.id
+            }
+          } else if (userData) {
+            userId = user.id
+          }
+        } catch (userErr) {
+          console.warn('Lỗi khi kiểm tra user, sẽ lưu với user_id = null:', userErr)
+        }
+      }
+
+      const blogData: any = {
+        title: formData.title.trim(),
+        excerpt: formData.excerpt.trim(),
+        content: formData.content.trim(),
+        image: formData.image,
+        date: formData.date,
+        author: formData.author.trim() || user?.email?.split('@')[0] || 'Admin',
+        category: formData.category,
+        status: formData.status,
+        user_id: userId,
+        slug: createSlug(formData.title),
+        meta_title: formData.title.substring(0, 60),
+        meta_description: formData.excerpt.substring(0, 160),
+      }
+
+      console.log('📦 Submitting blog data:', blogData)
+
+      if (id) {
+        // Update existing blog post
+        const { error } = await supabase
+          .from('blog_posts')
+          .update(blogData)
+          .eq('id', id)  // Sử dụng id để update
+
+        if (error) throw error
       } else {
-        success = await createBlog(blogData);
+        // Create new blog post
+        const { error } = await supabase
+          .from('blog_posts')
+          .insert([blogData])
+
+        if (error) throw error
       }
 
-      if (success) {
-        console.log('✅ Blog saved successfully');
-        navigate('/blogs');
+      console.log('✅ Blog saved successfully')
+      navigate('/blogs')
+    } catch (error: any) {
+      console.error('Error saving post:', error)
+      
+      // Xử lý lỗi foreign key constraint
+      if (error.message?.includes('foreign key constraint') || error.code === '23503') {
+        setError('Lỗi: Người dùng không tồn tại trong hệ thống. Vui lòng đăng nhập lại.')
       } else {
-        console.error('❌ Failed to save blog');
-        alert('Có lỗi xảy ra khi lưu bài viết. Kiểm tra console để biết chi tiết.');
+        setError(`Lỗi: ${error.message}`)
       }
-    } catch (err) {
-      console.error('❌ Error submitting blog:', err);
-      alert('Có lỗi xảy ra khi lưu bài viết');
     } finally {
-      setSubmitting(false);
+      setLoading(false)
     }
-  };
+  }
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const getSEOAdvice = () => {
+    const advice = []
     
-    // Tự động generate slug từ title
-    if (field === 'title' && !editingBlog) {
-      const slug = value
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/(^-|-$)+/g, '');
-      setFormData(prev => ({ ...prev, slug }));
+    if (!seoChecks.hasTitle) {
+      advice.push('Tiêu đề nên từ 10-70 ký tự')
     }
-  };
-
-  const handleThumbnailUpload = async (file: File) => {
-    setUploadingThumbnail(true);
-    try {
-      const imageUrl = await uploadImage(file);
-      if (imageUrl) {
-        setFormData(prev => ({ ...prev, thumbnail_url: imageUrl }));
-      }
-    } catch (error) {
-      console.error('Error uploading thumbnail:', error);
-      alert('Có lỗi xảy ra khi upload ảnh thumbnail');
-    } finally {
-      setUploadingThumbnail(false);
+    if (!seoChecks.hasMetaDescription) {
+      advice.push('Tóm tắt (meta description) nên từ 120-160 ký tự')
     }
-  };
-
-  const handleCoverUpload = async (file: File) => {
-    setUploadingCover(true);
-    try {
-      const imageUrl = await uploadImage(file);
-      if (imageUrl) {
-        setFormData(prev => ({ ...prev, cover_image_url: imageUrl }));
-      }
-    } catch (error) {
-      console.error('Error uploading cover:', error);
-      alert('Có lỗi xảy ra khi upload ảnh cover');
-    } finally {
-      setUploadingCover(false);
+    if (!seoChecks.hasContent) {
+      advice.push('Nội dung nên có ít nhất 300 ký tự')
     }
-  };
-
-  const addTag = () => {
-    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      setTags(prev => [...prev, tagInput.trim()]);
-      setTagInput('');
+    if (!seoChecks.hasImage) {
+      advice.push('Thêm hình ảnh chính cho bài viết')
     }
-  };
+    if (!seoChecks.hasHeadings) {
+      advice.push('Thêm tiêu đề (Heading H1, H2, H3) vào nội dung')
+    }
+    
+    return advice
+  }
 
-  const removeTag = (index: number) => {
-    setTags(prev => prev.filter((_, i) => i !== index));
-  };
+  const seoAdvice = getSEOAdvice()
 
   return (
     <div className="min-h-screen bg-background text-foreground py-8">
@@ -181,10 +329,10 @@ const BlogFormPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h1 className="text-3xl font-bold">
-                {editingBlog ? 'Chỉnh sửa bài viết' : 'Tạo bài viết mới'}
+                {id ? 'Chỉnh sửa bài viết' : 'Tạo bài viết mới'}
               </h1>
               <p className="text-muted-foreground mt-2">
-                {editingBlog 
+                {id 
                   ? 'Cập nhật thông tin bài viết của bạn' 
                   : 'Thêm bài viết mới vào blog của bạn'
                 }
@@ -201,299 +349,313 @@ const BlogFormPage: React.FC = () => {
 
         {/* Form Content */}
         <div className="bg-card border border-border rounded-lg p-6">
-          <form onSubmit={handleSubmit} className="space-y-8">
-            {/* Basic Information */}
-            <section>
-              <h2 className="text-xl font-semibold mb-4 pb-2 border-b border-border">
-                Thông tin cơ bản
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Tiêu đề *</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={formData.title}
-                    onChange={(e) => handleInputChange('title', e.target.value)}
-                    className="w-full p-3 border border-border rounded-md bg-background"
-                    placeholder="Nhập tiêu đề bài viết"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">Slug *</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={formData.slug}
-                    onChange={(e) => handleInputChange('slug', e.target.value)}
-                    className="w-full p-3 border border-border rounded-md bg-background"
-                    placeholder="URL-friendly slug"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">Tác giả</label>
-                  <select 
-                    value={formData.author_id}
-                    onChange={(e) => handleInputChange('author_id', e.target.value)}
-                    className="w-full p-3 border border-border rounded-md bg-background"
-                  >
-                    <option value="">Chọn tác giả</option>
-                    {authors.map(author => (
-                      <option key={author.id} value={author.id}>
-                        {author.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">Trạng thái</label>
-                  <select 
-                    value={formData.status}
-                    onChange={(e) => handleInputChange('status', e.target.value as any)}
-                    className="w-full p-3 border border-border rounded-md bg-background"
-                  >
-                    <option value="draft">Bản nháp</option>
-                    <option value="published">Đã xuất bản</option>
-                    <option value="archived">Đã lưu trữ</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <label className="block text-sm font-medium mb-2">Subtitle</label>
-                <input 
-                  type="text" 
-                  value={formData.subtitle}
-                  onChange={(e) => handleInputChange('subtitle', e.target.value)}
-                  className="w-full p-3 border border-border rounded-md bg-background"
-                  placeholder="Tiêu đề phụ"
-                />
-              </div>
-
-              <div className="mt-6">
-                <label className="block text-sm font-medium mb-2">Mô tả ngắn</label>
-                <textarea 
-                  value={formData.excerpt}
-                  onChange={(e) => handleInputChange('excerpt', e.target.value)}
-                  className="w-full p-3 border border-border rounded-md bg-background"
-                  rows={3}
-                  placeholder="Mô tả ngắn về bài viết"
-                />
-              </div>
-
-              <div className="mt-6">
-                <label className="block text-sm font-medium mb-2">Ngày sự kiện</label>
-                <input 
-                  type="date"
-                  value={formData.event_date}
-                  onChange={(e) => handleInputChange('event_date', e.target.value)}
-                  className="w-full p-3 border border-border rounded-md bg-background"
-                />
-              </div>
-
-              <div className="mt-6">
-                <label className="block text-sm font-medium mb-2">Địa điểm</label>
-                <input 
-                  type="text" 
-                  value={formData.location}
-                  onChange={(e) => handleInputChange('location', e.target.value)}
-                  className="w-full p-3 border border-border rounded-md bg-background"
-                  placeholder="Địa điểm tổ chức sự kiện"
-                />
-              </div>
-            </section>
-
-            {/* Images */}
-            <section>
-              <h2 className="text-xl font-semibold mb-4 pb-2 border-b border-border">
-                Hình ảnh
-              </h2>
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Thumbnail Image */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">Ảnh thumbnail *</label>
-                  <div className="space-y-3">
-                    <input 
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          await handleThumbnailUpload(file);
-                        }
-                      }}
-                      className="w-full p-3 border border-border rounded-md bg-background"
-                      disabled={uploadingThumbnail}
-                    />
-                    {uploadingThumbnail && (
-                      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                        <span>Đang upload ảnh thumbnail...</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {formData.thumbnail_url && !uploadingThumbnail && (
-                    <div className="mt-3">
-                      <img 
-                        src={formData.thumbnail_url} 
-                        alt="Thumbnail preview" 
-                        className="h-48 w-full object-cover rounded-md border"
-                        onError={(e) => {
-                          console.error('Error loading thumbnail image');
-                          e.currentTarget.src = 'https://via.placeholder.com/300x200?text=Image+Error';
-                        }}
-                      />
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground truncate">
-                          {formData.thumbnail_url.substring(0, 50)}...
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, thumbnail_url: '' }))}
-                          className="text-destructive hover:text-destructive/80 text-sm"
-                        >
-                          Xóa ảnh
-                        </button>
-                      </div>
-                    </div>
-                  )}
+              {/* Tiêu đề */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="title">Tiêu đề *</Label>
+                  <Badge variant={seoChecks.hasTitle ? "default" : "outline"} className="text-xs">
+                    {formData.title.length}/70
+                  </Badge>
                 </div>
-
-                {/* Cover Image */}
-                <div>
-                  <label className="block text-sm font-medium mb-2">Ảnh cover</label>
-                  <div className="space-y-3">
-                    <input 
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          await handleCoverUpload(file);
-                        }
-                      }}
-                      className="w-full p-3 border border-border rounded-md bg-background"
-                      disabled={uploadingCover}
-                    />
-                    {uploadingCover && (
-                      <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-                        <span>Đang upload ảnh cover...</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {formData.cover_image_url && !uploadingCover && (
-                    <div className="mt-3">
-                      <img 
-                        src={formData.cover_image_url} 
-                        alt="Cover preview" 
-                        className="h-48 w-full object-cover rounded-md border"
-                        onError={(e) => {
-                          console.error('Error loading cover image');
-                          e.currentTarget.src = 'https://via.placeholder.com/600x400?text=Image+Error';
-                        }}
-                      />
-                      <div className="mt-2 flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground truncate">
-                          {formData.cover_image_url.substring(0, 50)}...
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setFormData(prev => ({ ...prev, cover_image_url: '' }))}
-                          className="text-destructive hover:text-destructive/80 text-sm"
-                        >
-                          Xóa ảnh
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {/* Content */}
-            <section>
-              <h2 className="text-xl font-semibold mb-4 pb-2 border-b border-border">
-                Nội dung bài viết
-              </h2>
-              <div>
-                <label className="block text-sm font-medium mb-2">Nội dung *</label>
-                <textarea 
+                <Input
+                  id="title"
+                  value={formData.title}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   required
-                  value={formData.content}
-                  onChange={(e) => handleInputChange('content', e.target.value)}
-                  className="w-full p-3 border border-border rounded-md bg-background"
-                  rows={12}
-                  placeholder="Nhập nội dung bài viết của bạn..."
+                  disabled={loading}
+                  placeholder="Tiêu đề hấp dẫn, chứa từ khóa chính..."
+                  maxLength={70}
+                  className="placeholder:text-gray-400"
+                />
+                <p className="text-xs text-gray-500">
+                  Tiêu đề sẽ hiển thị trên Google. Tối ưu: 10-70 ký tự.
+                </p>
+              </div>
+
+              {/* Danh mục */}
+              <div className="space-y-2">
+                <Label htmlFor="category" className="text-gray-900 dark:text-white">
+                  Danh mục *
+                </Label>
+                <select
+                  id="category"
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={loading}
+                >
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat} className="text-gray-900">{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Tác giả */}
+              <div className="space-y-2">
+                <Label htmlFor="author">Tác giả *</Label>
+                <Input
+                  id="author"
+                  value={formData.author}
+                  onChange={(e) => setFormData({ ...formData, author: e.target.value })}
+                  required
+                  disabled={loading}
                 />
               </div>
-            </section>
 
-            {/* SEO Information */}
-            <section>
-              <h2 className="text-xl font-semibold mb-4 pb-2 border-b border-border">
-                Thông tin SEO
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-2">Meta Title</label>
-                  <input 
-                    type="text" 
-                    value={formData.meta_title}
-                    onChange={(e) => handleInputChange('meta_title', e.target.value)}
-                    className="w-full p-3 border border-border rounded-md bg-background"
-                    placeholder="Tiêu đề SEO (tối đa 60 ký tự)"
-                    maxLength={60}
-                  />
-                  <div className="text-xs text-muted-foreground mt-1 text-right">
-                    {formData.meta_title.length}/60 ký tự
-                  </div>
+              {/* Ngày đăng */}
+              <div className="space-y-2">
+                <Label htmlFor="date">Ngày đăng *</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              {/* Trạng thái */}
+              <div className="space-y-2">
+                <Label htmlFor="status" className="text-gray-900 dark:text-white">
+                  Trạng thái
+                </Label>
+                <select
+                  id="status"
+                  value={formData.status}
+                  onChange={(e) => setFormData({ ...formData, status: e.target.value as 'draft' | 'published' })}
+                  className="flex h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={loading}
+                >
+                  <option value="draft" className="text-gray-900">Bản nháp</option>
+                  <option value="published" className="text-gray-900">Xuất bản</option>
+                </select>
+              </div>
+
+              {/* Image Preview */}
+              <div className="md:col-span-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Hình ảnh chính *</Label>
+                  <Badge variant={seoChecks.hasImage ? "default" : "outline"} className="text-xs">
+                    {seoChecks.hasImage ? "✓ Có ảnh" : "Chưa có ảnh"}
+                  </Badge>
                 </div>
+                
+                {previewImage ? (
+                  <div className="space-y-3">
+                    <div className="relative w-full max-w-md">
+                      <img
+                        src={previewImage}
+                        alt="Preview"
+                        className="w-full h-48 object-cover rounded-lg border"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        className="absolute top-2 right-2"
+                        onClick={removeImage}
+                        disabled={loading || uploading}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      <p className="flex items-center gap-1">
+                        <Eye className="w-3 h-3" />
+                        Ảnh sẽ hiển thị đầu bài viết và khi chia sẻ link
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                    <Upload className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500 mb-3">Chưa có hình ảnh</p>
+                  </div>
+                )}
 
-                <div>
-                  <label className="block text-sm font-medium mb-2">Meta Description</label>
-                  <textarea 
-                    value={formData.meta_description}
-                    onChange={(e) => handleInputChange('meta_description', e.target.value)}
-                    className="w-full p-3 border border-border rounded-md bg-background"
-                    rows={3}
-                    placeholder="Mô tả SEO (tối đa 160 ký tự)"
-                    maxLength={160}
-                  />
-                  <div className="text-xs text-muted-foreground mt-1 text-right">
-                    {formData.meta_description.length}/160 ký tự
+                <div className="flex flex-col gap-4">
+                  <div className="flex gap-2">
+                    <Input
+                      value={formData.image.startsWith('http') && !formData.image.includes('supabase.co/storage')
+                        ? formData.image
+                        : ''}
+                      onChange={(e) => handleImageUrlChange(e.target.value)}
+                      placeholder="Nhập URL ảnh từ internet (https://...)"
+                      disabled={loading || uploading}
+                      className='placeholder:text-gray-400'
+                    />
+                    <span className="text-sm text-gray-500 self-center">hoặc</span>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleImageUpload}
+                      accept="image/*"
+                      className="hidden"
+                      disabled={loading || uploading}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={loading || uploading}
+                      className="whitespace-nowrap"
+                    >
+                      {uploading ? (
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      ) : (
+                        <Upload className="w-4 h-4 mr-2" />
+                      )}
+                      {uploading ? 'Đang upload...' : 'Upload ảnh'}
+                    </Button>
                   </div>
                 </div>
               </div>
-            </section>
 
-            {/* Action Buttons */}
-            <div className="flex space-x-4 pt-6 border-t border-border">
-              <Link 
-                to="/blogs"
-                className="flex-1 border border-border py-3 rounded-md hover:bg-muted transition-colors text-center"
-              >
-                Hủy
-              </Link>
-              <button 
-                type="submit"
-                disabled={submitting}
-                className="flex-1 bg-primary text-primary-foreground py-3 rounded-md hover:bg-primary/90 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitting ? 'Đang xử lý...' : editingBlog ? 'Cập nhật bài viết' : 'Tạo bài viết mới'}
-              </button>
+              {/* Tóm tắt (Meta Description) */}
+              <div className="md:col-span-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="excerpt">Tóm tắt (Meta Description) *</Label>
+                  <Badge 
+                    variant={
+                      formData.excerpt.length === 0 ? "outline" : 
+                      (formData.excerpt.length >= 120 && formData.excerpt.length <= 160) ? "default" : "destructive"
+                    } 
+                    className={`
+                      text-xs
+                      ${formData.excerpt.length >= 120 && formData.excerpt.length <= 160 ? 'bg-green-100 text-green-800 hover:bg-green-100' : ''}
+                    `}
+                  >
+                    {formData.excerpt.length === 0 ? "Chưa nhập" : 
+                    formData.excerpt.length < 120 ? `Thiếu ${120 - formData.excerpt.length} ký tự` :
+                    formData.excerpt.length > 160 ? `Dư ${formData.excerpt.length - 160} ký tự` :
+                    "✅ Tối ưu"}
+                  </Badge>
+                </div>
+                <Textarea
+                  id="excerpt"
+                  value={formData.excerpt}
+                  onChange={(e) => setFormData({ ...formData, excerpt: e.target.value })}
+                  rows={3}
+                  required
+                  disabled={loading}
+                  placeholder="Mô tả ngắn gọn về bài viết. Đoạn này sẽ hiển thị trên kết quả tìm kiếm Google..."
+                  maxLength={160}
+                  className="placeholder:text-gray-400"
+                />
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p>Đây là <strong>meta description</strong> hiển thị trên Google.</p>
+                  <p>Tối ưu: 120-160 ký tự, chứa từ khóa chính, kêu gọi hành động.</p>
+                </div>
+              </div>
+
+              <Separator className="md:col-span-2" />
+
+              {/* Nội dung chính với RichTextEditor */}
+              <div className="md:col-span-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="content" className="text-gray-900 dark:text-white">
+                    Nội dung chi tiết *
+                  </Label>
+                  <div className="flex gap-2">
+                    <Badge 
+                      variant={seoChecks.hasHeadings ? "default" : "outline"} 
+                      className={`
+                        text-xs
+                        ${seoChecks.hasHeadings ? 'bg-green-100 text-green-800 hover:bg-green-100' : ''}
+                      `}
+                    >
+                      {seoChecks.hasHeadings ? "✓ Có heading" : "Chưa có heading"}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Hidden input cho form validation */}
+                <input
+                  type="hidden"
+                  id="content"
+                  name="content"
+                  value={formData.content}
+                  required
+                />
+
+                {/* RichTextEditor */}
+                <div className="border border-gray-300 rounded-lg overflow-hidden">
+                  <RichTextEditor
+                    value={formData.content}
+                    onChange={(html) => setFormData({ ...formData, content: html })}
+                  />
+                </div>
+              </div>
+
             </div>
+
+            {/* Tóm tắt SEO Score */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <h4 className="font-medium text-blue-800 mb-2 flex items-center gap-2">
+                📊 Điểm SEO ước tính
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                {Object.entries(seoChecks).map(([key, value]) => (
+                  <div key={key} className="flex items-center gap-2">
+                    <div className={`h-3 w-3 rounded-full ${value ? 'bg-green-500' : 'bg-gray-300'}`} />
+                    <span className="text-sm text-blue-700 capitalize">
+                      {key.replace('has', '').replace(/([A-Z])/g, ' $1').trim()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-blue-600 mt-3">
+                Điểm SEO cao giúp bài viết dễ được tìm thấy trên Google.
+              </p>
+            </div>
+            
+            {error && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            
+            {/* Action Buttons */}
+            <div className="flex justify-between items-center pt-4 border-t">
+              <div className="text-sm text-gray-500">
+                <p>💡 <strong>Lưu ý:</strong> Nội dung HTML từ editor đã đầy đủ SEO.</p>
+              </div>
+              
+              <div className="flex space-x-3">
+                <Link
+                  to="/blogs"
+                  className="border border-border px-6 py-2 rounded-md hover:bg-muted transition-colors inline-flex items-center"
+                >
+                  Hủy
+                </Link>
+
+                <Button 
+                  type="submit" 
+                  disabled={loading || uploading}
+                  className="min-w-[120px]"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Đang lưu...
+                    </>
+                  ) : id ? (
+                    'Cập nhật'
+                  ) : (
+                    'Tạo bài viết'
+                  )}
+                </Button>
+              </div>
+            </div>
+            
           </form>
         </div>
       </div>
     </div>
-  );
+  )
 };
-
 export default BlogFormPage;
